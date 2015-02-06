@@ -9,14 +9,20 @@ List<Rectangle>^ FaceDetectManaged::FaceDetectManaged::FrontalDetect(Bitmap^ bmp
 	int stride;
 	unsigned char* buf = toGray(bmp, stride);
 	List<Rectangle> ^r = toList(facedetect_frontal(buf, bmp->Width, bmp->Height, stride, scale, min_nb, min_size, max_size));
+	delete[] buf;
 	return r;
 }
 
-List<Rectangle>^ FaceDetectManaged::FaceDetectManaged::MultiviewDetect(Bitmap^ bmp, float scale, int min_nb, int min_size, int max_size)
+List<Rectangle>^ FaceDetectManaged::FaceDetectManaged::MultiviewDetect(Bitmap^ bmp, bool frontalPrior, float scale, int min_nb, int min_size, int max_size)
 {
 	int stride;
 	unsigned char* buf = toGray(bmp, stride);
-	List<Rectangle> ^r = toList(facedetect_multiview(buf, bmp->Width, bmp->Height, stride, scale, min_nb, min_size, max_size));
+	List<Rectangle> ^r;
+	if (frontalPrior)
+		r = toList(facedetect_frontal(buf, bmp->Width, bmp->Height, stride, scale, min_nb, min_size, max_size));
+	if (r && r->Count == 0)
+		List<Rectangle> ^r = toList(facedetect_multiview(buf, bmp->Width, bmp->Height, stride, scale, min_nb, min_size, max_size));
+	delete[] buf;
 	return r;
 }
 
@@ -36,6 +42,24 @@ List<Rectangle>^ FaceDetectManaged::FaceDetectManaged::toList(int* arr)
 	return res;
 }
 
+// 0.30d = 0.0100110b
+// 0.59d = 0.1001011b
+// 0.11d = 0.0001110b
+inline int s1mul0_3(int x)
+{
+	return (x >> 1) + (x >> 4) + (x >> 5);
+}
+
+inline int s1mul0_59(int x)
+{
+	return (x >> 0) + (x >> 3) + (x >> 5) + (x >> 6);
+}
+
+inline int s1mul0_11(int x)
+{
+	return (x >> 3) + (x >> 4) + (x >> 5);
+}
+
 unsigned char* FaceDetectManaged::FaceDetectManaged::toGray(Bitmap^ bmp, int& stride)
 {
 	BitmapData^ bmpd;
@@ -48,14 +72,15 @@ unsigned char* FaceDetectManaged::FaceDetectManaged::toGray(Bitmap^ bmp, int& st
 	bmpd = bmp->LockBits(Rectangle(0, 0, bmp->Width, bmp->Height), ImageLockMode::ReadOnly, PixelFormat::Format24bppRgb);
 	stride = bmp->Width + (4 - bmp->Width % 4) % 4;
 	unsigned char* res = new unsigned char[stride * bmp->Height];
-	unsigned char* pBmp = (unsigned char*)bmpd->Scan0.ToPointer();
-	for (int offset = 0, y = 0; y < bmp->Height; ++y, offset += bmpd->Stride)
-		for (int x = 0; x < bmpd->Width; ++x) {
-			int b = pBmp[offset + x * 3 + 0],
-				g = pBmp[offset + x * 3 + 1],
-				r = pBmp[offset + x * 3 + 2];
-			res[y * stride + x] = (unsigned char)((float)r * 0.3f + (float)g * 0.59f + (float)b * 0.11f);
+	unsigned char* pBmp = (unsigned char*)bmpd->Scan0.ToPointer(),
+		*b, *g, *r;
+	for (int offset = 0, y = 0; y < bmp->Height; ++y, offset += bmpd->Stride){
+		b = pBmp + offset + 0, g = pBmp + offset + 1, r = pBmp + offset + 2;
+		for (int x = 0; x < bmpd->Width; ++x, b += 3, g += 3, r += 3) {
+			res[y * stride + x] = (unsigned char)((float)*r * 0.3f + (float)*g * 0.59f + (float)*b * 0.11f);
+			//res[y * stride + x] = (unsigned char)(((s1mul0_3((int)*r)) + (s1mul0_59((int)*g)) + (s1mul0_11((int)*b))) >> 1);
 		}
+	}
 	bmp->UnlockBits(bmpd);
 	return res;
 }
