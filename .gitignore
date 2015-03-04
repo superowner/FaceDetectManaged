@@ -1,0 +1,12 @@
+
+*.tlog
+
+*.obj
+
+*.log
+
+*.pch
+
+*.cache
+
+*.pdb
